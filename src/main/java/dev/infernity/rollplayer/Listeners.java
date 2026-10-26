@@ -27,7 +27,7 @@ public class Listeners {
 
     public Listeners(){
         var pm = new PaginationManager();
-        this.listeners.addAll(List.of(new EightBall(), new Choose(), new TicTacToe(), new Info(), new Roll(), new RollHelp(), new Settings(), new RandomCommand()));
+        this.listeners.addAll(List.of(new EightBall(), new Choose(), new TicTacToe(), new Info(), new Roll(), new RollHelp(), /*new Settings(),*/ new RandomCommand()));
         this.listeners.addAll(List.of(pm, new MetricsManager()));
         // this.listeners.addAll(List.of(new Test(), new TestArguments()));
         for (EventListener listener : listeners) {

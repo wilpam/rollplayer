@@ -74,7 +74,9 @@ public class RollHelp extends SimpleCommandListener {
             - `3d100i1,3:+20` will roll 3 dice and then add 20 to the first and third.
             - `3d100i1,3:+20:/5` will do the same, and then divide by 5 [to the first and third]. Note that this is not in PEMDAS order.
             - `3d100i*:+20` will add +20 to ALL dice (the asterisk is a wildcard). Note that this will add 60 total, since it's adding 20 to each dice individually.
-            To put it into actual words, though, the part before the colon is what rolls are selected, and the part after is the list of modifiers. You can do multiple, e.g. *+20:*3*."""));
+            To put it into actual words, though, the part before the colon is what rolls are selected, and the part after is the list of modifiers. You can do multiple, e.g. *+20:*3*.
+            Conditional expressions are also allowed, e.g. `3d100i{>50}:*100`. You can also use the #num condition to mix these, e.g. `3d100i{#1,>50}:*100`
+            """));
 
         pages.add(new PaginationComponent.Page("Shorthands", """
             There are also some shorthands available [typing the full word "drop" is going to get annoying when you do it a hundred times]. They are below:

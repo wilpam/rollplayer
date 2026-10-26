@@ -3,7 +3,18 @@ package dev.infernity.rollplayer.listeners.commands;
 import dev.infernity.rollplayer.Resources;
 import dev.infernity.rollplayer.components.templates.ErrorTemplate;
 import dev.infernity.rollplayer.listeners.templates.SimpleCommandListener;
-import dev.infernity.rollplayer.rollplayerlib3.Parser;
+import dev.infernity.rollplayer.rollplayerlib4.Markup;
+import dev.infernity.rollplayer.rollplayerlib4.RollplayerLib4;
+import dev.infernity.rollplayer.rollplayerlib4.SpanData;
+import dev.infernity.rollplayer.rollplayerlib4.execution.ExecutionResult;
+import dev.infernity.rollplayer.rollplayerlib4.execution.Executor;
+import dev.infernity.rollplayer.rollplayerlib4.execution.strategies.numeric.BestPossibleStrategy;
+import dev.infernity.rollplayer.rollplayerlib4.execution.strategies.numeric.WorstPossibleStrategy;
+import dev.infernity.rollplayer.rollplayerlib4.lexer.Lexer;
+import dev.infernity.rollplayer.rollplayerlib4.lexer.TokenizationResult;
+import dev.infernity.rollplayer.rollplayerlib4.parsing.Node;
+import dev.infernity.rollplayer.rollplayerlib4.parsing.Parser;
+import dev.infernity.rollplayer.rollplayerlib4.parsing.ParsingResult;
 import net.dv8tion.jda.api.components.container.Container;
 import net.dv8tion.jda.api.components.container.ContainerChildComponent;
 import net.dv8tion.jda.api.components.textdisplay.TextDisplay;
@@ -14,11 +25,15 @@ import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.utils.MarkdownSanitizer;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.random.RandomGenerator;
 
 public class Roll extends SimpleCommandListener {
     public Roll(){
@@ -30,7 +45,8 @@ public class Roll extends SimpleCommandListener {
         return List.of(
                 Commands.slash(commandName, commandDescription)
                         .setContexts(InteractionContextType.ALL)
-                        .addOption(OptionType.STRING, "roll", "Roll expressions, rules are explained in rollhelp", false)
+                        .addOption(OptionType.STRING, "roll", "Roll expressions, rules are explained in rollhelp", true)
+                        .addOption(OptionType.STRING, "seed", "A seed to generate this roll with, to ensure consistency.", false)
                         .setIntegrationTypes(IntegrationType.ALL)
                         .setContexts(InteractionContextType.ALL)
         );
@@ -62,140 +78,44 @@ public class Roll extends SimpleCommandListener {
 
     @Override
     public void onCommandRan(@NotNull SlashCommandInteractionEvent event) {
-        String input = event.getOption("roll",
-                () -> Resources.getInstance().getDatabaseManager().getUserData(event.getUser().getIdLong()).getDefaultRoll(),
-                OptionMapping::getAsString);
+        String input = event.getOption("roll", OptionMapping::getAsString);
+        @Nullable String seed = event.getOption("seed", OptionMapping::getAsString);
         try {
-
             if (isInteger(input)) { // If people are doing "roll 20", they probably expect "roll d20"
                 input = "d" + input;
             }
-            ArrayList<String> evaluations;
-            ArrayList<String> expressions;
+            var evaluation = evaluateRoll(input, seed);
+            if (evaluation instanceof ExecutionResult.Error<Double> error) {
+                event.replyComponents(ErrorTemplate.of("Evaluation error", formatError(error)))
+                        .useComponentsV2().queue();
+                return;
+            }
+            var result = (ExecutionResult.Success<Double>) evaluation;
             List<ContainerChildComponent> output = new ArrayList<>();
-
-            expressions = Parser.removeWhitespace(input);
-            if (expressions.getFirst().equals("ERR") || expressions.size() > 10) {
-                String errorString;
-
-                if (expressions.getFirst().equals("ERR")) errorString = expressions.get(1);
-                else errorString = "Rollplayer cannot roll more than 10 expressions at once";
-
-                event.replyComponents(ErrorTemplate.of("Whitespace Removal error", errorString)).useComponentsV2().queue();
-                return;
+            if (!Objects.isNull(seed)){
+                output.add(TextDisplay.of("-# **⚠️ Rolling with this seed again will give the same result.**"));
             }
-
-            evaluations = Parser.evaluate(input);
-            if (evaluations.getFirst().equals("ERR")) {
-                event.replyComponents(ErrorTemplate.of("Evaluation error", evaluations.get(1))).useComponentsV2().queue();
-                return;
+            for (var expression : result.expressions()) {
+                if (result.expressions().size() > 1) {
+                    var range = expression.source().range();
+                    String source = range.originalString().substring(range.cursorStart(), range.cursorEnd());
+                    output.add(TextDisplay.ofFormat("**%s**", source));
+                }
+                output.add(TextDisplay.of(formatExpression(expression)));
             }
-
-
-            // add each expression-evaluation pair
-            for (int exp = 0; exp < evaluations.size(); exp++) {
-                if (expressions.size() > 1) {
-                    output.add(TextDisplay.ofFormat("**%s**", expressions.get(exp)));
-                }
-
-                String[] values;
-                if (evaluations.get(exp).startsWith("r")) { // roll list clause
-                    // rewrite this if if you want to reformat how no-roll returns will look
-                    if (evaluations.get(exp).substring(1).isEmpty()) {
-                        output.add(TextDisplay.of("[*No rolls*]"));
-                        continue;
-                    }
-                    else values = evaluations.get(exp).substring(2).split(" ");
-                } else { // single output clause
-                    values = new String[]{evaluations.get(exp)};
-                }
-
-                // remove trailing zeroes
-                for (int s = 0; s < values.length; s++) {
-                    String unformattedNumber = values[s].replaceAll("\\**_*~*", "");
-                    int asteriskCount = values[s].length() - unformattedNumber.length();
-                    if (unformattedNumber.endsWith(".0"))
-                        unformattedNumber = unformattedNumber.substring(0, unformattedNumber.length() - 2);
-                    unformattedNumber = values[s].substring(0, asteriskCount/2) + unformattedNumber +
-                            values[s].substring(values[s].length() - asteriskCount/2);
-                    values[s] = unformattedNumber;
-                }
-
-                StringBuilder line = new StringBuilder("[");
-                for (int s = 0; s < values.length; s++) {
-                    line.append(values[s]);
-                    if (s < values.length - 1)
-                        line.append(", ");
-                }
-                if (values.length > 1) { //   append the total
-                    double total = 0;
-                    for (String s : values)
-                        total += Parser.parseDouble(s);
-
-                    if (total == (int) total) //  remove trailing zero
-                        line.append(" (total: ").append((int) total).append(")");
-                    else
-                        line.append(" (total: ").append(total).append(")");
-                }
-                line.append("]");
-                output.add(TextDisplay.ofFormat("%s", line.toString()));
-            }
-
-            Container outputContainer = createContainer(TextDisplay.ofFormat("### %s /roll: %s", this.commandEmoji, input), output);
-
-
-            // COLOR SECTION
-            float minLerpHue = 0, upToMaxLerpHue = 120f / 360, atMaxLerpHue = 180f / 360, overMaxLerpHue = 300f / 360;
-            float brightness = 70f / 100, saturation = 1;
-
-            float hue;
-            double valueSum = 0;
-            double valueMax = Parser.evaluateMinMax(expressions, "max");
-            double valueMin = Parser.evaluateMinMax(expressions, "min");
-
-            if (Double.isNaN(valueMin) || Double.isNaN(valueMax)) {
-                event.replyComponents(ErrorTemplate.of("Minmax calculation step failed", "If you're seeing this, please contact [the support server](https://discord.gg/TT3vyT3tAD)")).useComponentsV2().queue();
-                return;
-            }
-
-            if (valueMax == 0 && valueMin == 0) { // color return selection for when the bounds are 0
-                brightness = 0;
-                hue = 0;
-            }
-            else {
-                for (String s : evaluations) {
-                    if (s.startsWith("r")) {
-                        if (s.substring(1).isEmpty()) valueSum = 0; // avoid index error
-                        else {
-                            String[] doubles = s.substring(2).split(" ");
-                            for (String d : doubles)
-                                valueSum += Parser.parseDouble(d);
-                        }
-                    } else valueSum += Parser.parseDouble(s);
-                }
-
-                if (valueSum >= valueMax) {
-                    if (valueSum >= 2 * valueMax) {
-                        hue = overMaxLerpHue;
-                        brightness = .85f;
-                    } else {
-                        // overmax lerp
-                        // think of this as (valueSum - valueMax) / (2*valueMax - valueMax)
-                        float lerp = (float) ((valueSum - valueMax) / valueMax);
-                        hue = lerp * (overMaxLerpHue - atMaxLerpHue) + atMaxLerpHue;
-                        brightness = (lerp * .1f) + .75f;
-                    }
-                } else if (valueSum <= valueMin) {
-                    brightness = 0;
-                    hue = 0;
-                } else {
-                    //what's lerpma?
-                    float lerp = (float) ((valueSum - valueMin) / (valueMax - valueMin));
-                    hue = lerp * (upToMaxLerpHue - minLerpHue) + minLerpHue;
-                }
-            }
-
-            outputContainer = outputContainer.withAccentColor(Color.getHSBColor(hue, saturation, brightness));
+            Container outputContainer = createContainer(
+                    TextDisplay.ofFormat(
+                            "### %s /roll: %s%s",
+                                    this.commandEmoji,
+                                    input,
+                                    Objects.isNull(seed) ? "" : String.format(
+                                            ", seed %s",
+                                            MarkdownSanitizer.sanitize(
+                                                    seed, MarkdownSanitizer.SanitizationStrategy.ESCAPE
+                                            )
+                                    )
+                    ), output)
+                    .withAccentColor(resultColor(result));
 
             event.replyComponents(outputContainer).useComponentsV2().queue();
         } catch (Exception e) {
@@ -206,5 +126,83 @@ public class Roll extends SimpleCommandListener {
                     TextDisplay.ofFormat("\n-# This issue is unexpected. If you wish to track the issue, join our [support server](https://discord.gg/TT3vyT3tAD) and give the developers the following error code: %s", errcode)
             )).useComponentsV2().queue();
         }
+    }
+
+    static ExecutionResult<Double> evaluateRoll(String input, @Nullable String seed) {
+        var tokenization = Lexer.tokenize(input);
+        if (tokenization instanceof TokenizationResult.Error error) {
+            return new ExecutionResult.Error<>(error.message(), error.location());
+        }
+        var parsing = Parser.parse(((TokenizationResult.Success) tokenization).tokens());
+        if (parsing instanceof ParsingResult.Error error) {
+            return new ExecutionResult.Error<>(error.message(), error.location());
+        }
+        if (((ParsingResult.Success) parsing).nodes().size() > 10) {
+            return new ExecutionResult.Error<>("Rollplayer cannot roll more than 10 expressions at once",
+                    new SpanData(0, input.length(), input));
+        }
+        return seed == null ? RollplayerLib4.evaluate(input) : RollplayerLib4.evaluate(input, seed);
+    }
+
+    static String formatExpression(ExecutionResult.Expression<Double> expression) {
+        Node source = expression.source();
+        while (source instanceof Node.Group group) {
+            source = group.expression();
+        }
+        if (!(source instanceof Node.Dice)) {
+            return "[" + formatNumber(expression.value()) + "]";
+        }
+        var rolls = expression.rolls().getFirst().values();
+        if (rolls.isEmpty()) return "[*No rolls*]";
+        var formatted = rolls.stream().map(Roll::formatRoll).toList();
+        String line = "[" + String.join(", ", formatted);
+        if (rolls.size() > 1) {
+            line += " (total: " + formatNumber(expression.value()) + ")";
+        }
+        return line + "]";
+    }
+
+    static String formatError(ExecutionResult.Error<?> error) {
+        return error.message() + "\n```\n" + error.location().debugInfo() + "\n```";
+    }
+
+    private static String formatRoll(Markup.Group<Double> roll) {
+        String marker = (roll.highlight().bold() ? "**" : "") + (roll.highlight().italic() ? "*" : "");
+        return marker + formatNumber(roll.value()) + marker;
+    }
+
+    private static String formatNumber(double value) {
+        if (value == 0) return "0";
+        String number = Double.toString(value);
+        return number.endsWith(".0") ? number.substring(0, number.length() - 2) : number;
+    }
+
+    static Color resultColor(ExecutionResult.Success<Double> result) {
+        var nodes = result.expressions().stream().map(ExecutionResult.Expression::source).toList();
+        var executor = new Executor<Double>(nodes, RandomGenerator.getDefault());
+        var high = executor.executeDetailed(new BestPossibleStrategy());
+        var low = executor.executeDetailed(new WorstPossibleStrategy());
+        if (!(high instanceof ExecutionResult.Success<Double> highResult)
+                || !(low instanceof ExecutionResult.Success<Double> lowResult)) {
+            return Color.GRAY;
+        }
+        double value = result.values().stream().mapToDouble(Double::doubleValue).sum();
+        double highValue = highResult.values().stream().mapToDouble(Double::doubleValue).sum();
+        double lowValue = lowResult.values().stream().mapToDouble(Double::doubleValue).sum();
+        if (!Double.isFinite(value) || !Double.isFinite(highValue) || !Double.isFinite(lowValue)) {
+            return Color.GRAY;
+        }
+        double min = Math.min(lowValue, highValue);
+        double max = Math.max(lowValue, highValue);
+        if (!Double.isFinite(max - min)) return Color.GRAY;
+        if (min == 0 && max == 0) return Color.BLACK;
+        if (value < min || (value == min && min != max)) return Color.BLACK;
+        if (value >= max) {
+            double width = max > min ? max - min : Math.abs(max);
+            double over = Math.min(1, (value - max) / width);
+            return Color.getHSBColor((float) (.5 + over * (300d / 360 - .5)), 1, (float) (.75 + over * .1));
+        }
+        float position = (float) ((value - min) / (max - min));
+        return Color.getHSBColor(position * (120f / 360), 1, .7f);
     }
 }

@@ -1,28 +1,49 @@
 package dev.infernity.rollplayer.rollplayerlib4.lexer;
 
 import dev.infernity.rollplayer.rollplayerlib4.SpanData;
+import dev.infernity.rollplayer.rollplayerlib4.Keywords;
 
 public sealed interface Token {
     SpanData range();
 
-    /// Oops
     record Error(String message, SpanData range) implements Token {}
 
-    /// `12.34`
     record Number(String value, SpanData range) implements Token {}
-    /// `:` in `1:100`
+
     record RangeDeclaration(SpanData range) implements Token {}
-    /// `d` in `1d100`
+
     record DiceDeclaration(SpanData range) implements Token {}
 
-    /// `{` in `drop{1,3,>10}`
     record OpenBracket(SpanData range) implements Token {}
-    /// `}` in `drop{1,3,>10}`
     record CloseBracket(SpanData range) implements Token {}
-    /// `drop` in `drop{1,3,>10}`
-    record Keyword(Keyword keyword, SpanData range) implements Token {}
 
+    record Keyword(Keywords keyword, SpanData range) implements Token {}
 
-    /// Always at the end of input so you don't go out of bounds
+    record Minus(SpanData range) implements Token {}
+
+    record Plus(SpanData range) implements Token {}
+
+    record Asterisk(SpanData range) implements Token {}
+
+    record Slash(SpanData range) implements Token {}
+
+    record Caret(SpanData range) implements Token {}
+
+    record OpenParenthesis(SpanData range) implements Token {}
+    record CloseParenthesis(SpanData range) implements Token {}
+
+    record Comma(SpanData range) implements Token {}
+
+    record GreaterThan(SpanData range) implements Token {}
+    record GreaterThanOrEqual(SpanData range) implements Token {}
+    record LessThan(SpanData range) implements Token {}
+    record LessThanOrEqual(SpanData range) implements Token {}
+    record Equals(SpanData range) implements Token {}
+    record NotEquals(SpanData range) implements Token {}
+
+    record TargetDeclaration(SpanData range) implements Token {}
+
+    record RollIndexDeclaration(SpanData range) implements Token {}
+
     record EndOfInput(SpanData range) implements Token {}
 }

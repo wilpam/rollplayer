@@ -15,7 +15,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.Objects;
-
+// TODO: overhaul all of this
 public class Settings extends SimpleCommandListener {
     public Settings() {
         super("settings", "User-specific settings for Rollplayer.", "\uD83D\uDD27");
